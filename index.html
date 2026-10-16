@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hopfild neyron şəbəkələrində lokal axtarış</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --base: #c3c2b7;
+    --border: rgba(11, 11, 11, .10);
+    --pos: #184f95;          /* s = +1 */
+    --neg: #f0efec;          /* s = −1 */
+    --accent: #2a78d6;
+    --accent-wash: #e7f0fb;
+    --good: #0ca30c;         /* yaxşı til */
+    --bad: #d03b3b;          /* pis til / razı olmayan */
+    --flip: #eda100;         /* son çevrilən */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 20px 28px 0; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+  h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+  h3 { font-size: 16px; margin: 22px 0 8px; font-weight: 600; }
+  .sub { color: var(--ink2); margin: 0; }
+  nav { display: flex; gap: 4px; padding: 14px 28px 0; border-bottom: 1px solid var(--grid); }
+  nav button {
+    border: 0; background: none; font: inherit; color: var(--ink2); cursor: pointer;
+    padding: 9px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  nav button:hover { color: var(--ink); }
+  nav button.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+
+  main { display: none; padding: 18px 28px 28px; gap: 18px; }
+  main.active { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, 1fr); }
+  main.single.active { display: block; max-width: 980px; }
+  .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .controls + .controls { margin-top: 10px; }
+  button.btn {
+    font: inherit; font-size: 14px; padding: 7px 13px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--base); background: #fff; color: var(--ink);
+  }
+  button.btn:hover { background: var(--neg); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn.primary:hover { background: #256abf; }
+  button.btn:disabled { opacity: .45; cursor: default; }
+  select, input[type=range] { font: inherit; font-size: 14px; }
+  select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--base); background: #fff; }
+  label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 14px; }
+  .val { font-variant-numeric: tabular-nums; min-width: 3ch; display: inline-block; color: var(--ink); }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .tile { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: #fff; }
+  .tile .lbl { font-size: 12px; color: var(--ink2); }
+  .tile .num { font-size: 22px; font-weight: 600; }
+  .status { margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 14px; background: var(--neg); color: var(--ink2); }
+  .status.ok { background: #e5f4e5; color: #006300; }
+  .status.run { background: #fbeeee; color: #8f2525; }
+
+  .pseudo { font: 13.5px/1.6 ui-monospace, "Cascadia Code", Consolas, monospace; margin: 0; white-space: pre; overflow-x: auto; }
+  .pseudo .ln { display: block; padding: 0 8px; border-radius: 6px; }
+  .pseudo .ln.hl { background: var(--accent-wash); box-shadow: inset 3px 0 0 var(--accent); }
+  .pseudo .cm { color: var(--muted); }
+
+  svg.viz { display: block; width: 100%; height: auto; }
+  .legend svg { flex: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--ink2); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+
+  .log { max-height: 240px; overflow-y: auto; font: 13px/1.55 ui-monospace, Consolas, monospace; margin: 0; padding: 0; list-style: none; }
+  .log li { padding: 2px 4px; border-bottom: 1px solid var(--grid); }
+  .log li.done { color: #006300; font-weight: 600; }
+  .log li.info { color: var(--ink2); }
+
+  /* Assosiativ yaddaş şəbəkəsi */
+  .grid10 { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; width: min(100%, 420px); margin: 0 auto; user-select: none; touch-action: none; }
+  .cell { aspect-ratio: 1; border-radius: 4px; background: var(--neg); cursor: crosshair; position: relative; }
+  .cell.on { background: var(--pos); }
+  .cell.unsat::after { content: ""; position: absolute; inset: 2px; border: 2px solid var(--bad); border-radius: 3px; }
+  .cell.flip { box-shadow: 0 0 0 3px var(--flip); z-index: 1; }
+  .patterns { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .pat { border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: #fff; cursor: pointer; text-align: center; width: 92px; }
+  .pat:hover { border-color: var(--base); }
+  .pat.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .pat canvas { width: 60px; height: 60px; display: block; margin: 0 auto 4px; image-rendering: pixelated; }
+  .pat .nm { font-weight: 600; }
+  .pat .d { font-size: 12px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .pat.match .d { color: #006300; font-weight: 600; }
+
+  /* Nəzəriyyə */
+  .theory p, .theory li { color: #2b2a28; }
+  .theory .box { border-left: 3px solid var(--accent); background: var(--accent-wash); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 10px 0; }
+  .math { font-family: "Cambria Math", "STIX Two Math", Cambria, serif; font-size: 16px; }
+  pre.code, .pseudo { font-variant-ligatures: none; }
+  pre.code { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px; overflow-x: auto; font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+  pre.code .c { color: #6b6a65; font-style: italic; }
+  pre.code .k { color: #4a3aa7; font-weight: 600; }
+  pre.code .s { color: #1c7a45; }
+  table.cx { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+  table.cx td, table.cx th { border-bottom: 1px solid var(--grid); padding: 6px 12px; text-align: left; }
+  table.cx th { color: var(--ink2); font-weight: 600; }
+
+  /* Diaqram tooltip */
+  .chart-wrap { position: relative; }
+  .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; box-shadow: 0 2px 8px rgba(0,0,0,.08); white-space: nowrap; display: none; }
+  kbd { font: 12px ui-monospace, Consolas, monospace; border: 1px solid var(--base); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; }
+
+  @media (max-width: 900px) { main.active { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Hopfild neyron şəbəkələrində lokal axtarış</h1>
+  <p class="sub">State-Flipping alqoritmi · Kleinberg &amp; Tardos, <i>Algorithm Design</i>, §12.3 · Alqoritmlərin analizi</p>
+</header>
+
+<nav>
+  <button data-tab="tab-graph" class="active">1 · Alqoritm qraf üzərində</button>
+  <button data-tab="tab-mem">2 · Tətbiq: assosiativ yaddaş</button>
+  <button data-tab="tab-theory">3 · Nəzəriyyə və kod</button>
+</nav>
+
+<!-- ======================================================= 1. QRAF -->
+<main id="tab-graph" class="active">
+  <div class="col">
+    <div class="card">
+      <h2>Hopfild şəbəkəsi (qraf)</h2>
+      <svg class="viz" id="g-svg" viewBox="0 0 600 470" aria-label="Hopfild şəbəkəsinin qrafı"></svg>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--pos)"></i>s = +1</span>
+        <span><i class="sw" style="background:var(--neg);border:1px solid var(--base)"></i>s = −1</span>
+        <span><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--good)" stroke-width="3"/></svg>yaxşı til</span>
+        <span><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--bad)" stroke-width="3" stroke-dasharray="6 4"/></svg>pis til</span>
+        <span><i class="sw" style="border:3px solid var(--bad)"></i>razı olmayan neyron</span>
+        <span><i class="sw" style="border:3px solid var(--flip)"></i>son çevrilən</span>
+      </div>
+      <p class="hint">Neyronun altında: <b>y</b> – yaxşı tillərin çəkiləri cəmi, <b>p</b> – pis tillərin. Neyron razıdır ⇔ y ≥ p.
+        Neyrona klikləsəniz, onu əl ilə çevirib yeni başlanğıc konfiqurasiya yaradırsınız.</p>
+    </div>
+    <div class="card">
+      <h2>Addımların jurnalı</h2>
+      <ol class="log" id="g-log"></ol>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <div class="controls">
+        <button class="btn primary" id="g-step">Addım ▸</button>
+        <button class="btn" id="g-play">▶ Başlat</button>
+        <button class="btn" id="g-reset">↺ Sıfırla</button>
+        <label class="inline">strategiya
+          <select id="g-strategy">
+            <option value="first">ardıcıl (ən kiçik nömrə)</option>
+            <option value="random">təsadüfi</option>
+            <option value="greedy">acgöz (maks. artım)</option>
+          </select>
+        </label>
+      </div>
+      <div class="controls">
+        <button class="btn" id="g-example">Nümunə qraf</button>
+        <button class="btn" id="g-random">Təsadüfi qraf</button>
+        <label class="inline">n = <input type="range" id="g-n" min="4" max="12" value="8"><span class="val" id="g-n-val">8</span></label>
+        <label class="inline">sürət <input type="range" id="g-speed" min="1" max="10" value="4"></label>
+      </div>
+      <p class="hint">Klaviatura: <kbd>→</kbd> addım, <kbd>P</kbd> başlat/dayandır, <kbd>R</kbd> sıfırla.</p>
+    </div>
+
+    <div class="card">
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Potensial Φ(S)</div><div class="num" id="g-phi">–</div></div>
+        <div class="tile"><div class="lbl">Sərhəd W = Σ|w|</div><div class="num" id="g-W">–</div></div>
+        <div class="tile"><div class="lbl">Çevirmə sayı</div><div class="num" id="g-flips">–</div></div>
+        <div class="tile"><div class="lbl">Razı olmayan</div><div class="num" id="g-unsat">–</div></div>
+        <div class="tile"><div class="lbl">Enerji E(S)</div><div class="num" id="g-E">–</div></div>
+        <div class="tile"><div class="lbl">Til sayı m</div><div class="num" id="g-m">–</div></div>
+      </div>
+      <div class="status" id="g-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Psevdokod</h2>
+      <div class="pseudo" id="g-pseudo"></div>
+    </div>
+
+    <div class="card">
+      <h2>Φ(S) addımlar üzrə</h2>
+      <div class="chart-wrap"><svg class="viz" id="g-chart" viewBox="0 0 440 200"></svg><div class="tip" id="g-tip"></div></div>
+      <p class="hint">Hər çevirmədə Φ ən azı 1 artır və W-ni keçə bilməz ⇒ alqoritm ən çox W addımda dayanır.</p>
+    </div>
+  </div>
+</main>
+
+<!-- ======================================================= 2. YADDAŞ -->
+<main id="tab-mem">
+  <div class="col">
+    <div class="card">
+      <h2>100 neyron = 10×10 piksel</h2>
+      <div class="grid10" id="m-grid"></div>
+      <div class="legend" style="justify-content:center">
+        <span><i class="sw" style="background:var(--pos);border-radius:3px"></i>s = +1</span>
+        <span><i class="sw" style="background:var(--neg);border:1px solid var(--base);border-radius:3px"></i>s = −1</span>
+        <span><i class="sw" style="border:2px solid var(--bad);border-radius:3px"></i>razı olmayan neyron</span>
+        <span><i class="sw" style="border:3px solid var(--flip);border-radius:3px"></i>son çevrilən</span>
+      </div>
+      <div class="patterns" id="m-patterns"></div>
+      <p class="hint" style="text-align:center">Yadda saxlanılan obrazlar (Hebb qaydası ilə). Altdakı rəqəm hazırkı
+        vəziyyətdən fərqlənən piksellərin sayıdır (Hamming məsafəsi). Şəbəkənin üzərində siçanla çəkə bilərsiniz.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <div class="controls">
+        <button class="btn primary" id="m-step">Addım ▸</button>
+        <button class="btn" id="m-play">▶ Başlat</button>
+        <button class="btn" id="m-reset">↺ Sıfırla</button>
+        <label class="inline">strategiya
+          <select id="m-strategy">
+            <option value="random">təsadüfi</option>
+            <option value="first">ardıcıl (ən kiçik nömrə)</option>
+            <option value="greedy">acgöz (maks. artım)</option>
+          </select>
+        </label>
+      </div>
+      <div class="controls">
+        <label class="inline">küy <input type="range" id="m-noise" min="0" max="50" value="25"><span class="val" id="m-noise-val">25%</span></label>
+        <button class="btn" id="m-addnoise">Küylü versiya yarat</button>
+        <button class="btn" id="m-clear">Təmizlə</button>
+        <label class="inline">sürət <input type="range" id="m-speed" min="1" max="10" value="7"></label>
+      </div>
+      <p class="hint">Obrazı seçin → küy əlavə edin → «Başlat». Lokal axtarış küylü şəkli ən yaxın stabil konfiqurasiyaya aparır.</p>
+    </div>
+
+    <div class="card">
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Potensial Φ(S)</div><div class="num" id="m-phi">–</div></div>
+        <div class="tile"><div class="lbl">Sərhəd W = Σ|w|</div><div class="num" id="m-W">–</div></div>
+        <div class="tile"><div class="lbl">Çevirmə sayı</div><div class="num" id="m-flips">–</div></div>
+        <div class="tile"><div class="lbl">Razı olmayan</div><div class="num" id="m-unsat">–</div></div>
+        <div class="tile"><div class="lbl">Ən yaxın obraz</div><div class="num" id="m-near">–</div></div>
+        <div class="tile"><div class="lbl">Til sayı m</div><div class="num" id="m-m">–</div></div>
+      </div>
+      <div class="status" id="m-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Psevdokod</h2>
+      <div class="pseudo" id="m-pseudo"></div>
+    </div>
+
+    <div class="card">
+      <h2>Φ(S) addımlar üzrə</h2>
+      <div class="chart-wrap"><svg class="viz" id="m-chart" viewBox="0 0 440 200"></svg><div class="tip" id="m-tip"></div></div>
+    </div>
+  </div>
+</main>
+
+<!-- ======================================================= 3. NƏZƏRİYYƏ -->
+<main id="tab-theory" class="single">
+  <div class="card theory">
+    <h2 style="font-size:18px">Məsələnin qoyuluşu</h2>
+    <ul>
+      <li>Hopfild şəbəkəsi yönləndirilməmiş <b>G = (V, E)</b> qrafıdır. Hər təpə bir neyrondur, hər tilin tam ədəd çəkisi <span class="math">w<sub>e</sub></span> var.</li>
+      <li><b>Konfiqurasiya</b> S hər neyrona bir vəziyyət verir: <span class="math">s<sub>u</sub> ∈ {−1, +1}</span>.</li>
+      <li><span class="math">e = (u, v)</span> tili <b>yaxşıdır</b>, əgər <span class="math">w<sub>e</sub>·s<sub>u</sub>·s<sub>v</sub> &lt; 0</span>.
+        Yəni <span class="math">w<sub>e</sub> &lt; 0</span> olanda u və v eyni vəziyyətdə olmaq istəyir, <span class="math">w<sub>e</sub> &gt; 0</span> olanda isə fərqli.</li>
+      <li>u neyronu <b>razıdır</b>, əgər ona bitişik yaxşı tillərin çəkiləri cəmi pis tillərinkindən kiçik deyilsə:
+        <span class="math">Σ<sub>v</sub> w<sub>uv</sub>·s<sub>u</sub>·s<sub>v</sub> ≤ 0</span>.</li>
+      <li>Bütün neyronlar razıdırsa, konfiqurasiya <b>stabildir</b>. Sual: stabil konfiqurasiya həmişə varmı və onu necə tapmaq olar?</li>
+    </ul>
+
+    <h3>Lokal axtarış: State-Flipping alqoritmi</h3>
+    <div class="pseudo" id="t-pseudo"></div>
+    <p>Axtarış fəzası 2<sup>n</sup> konfiqurasiyadır. Bir konfiqurasiyanın <b>qonşuları</b> tək bir neyronu çevirməklə alınanlardır (Hamming məsafəsi 1).
+      Alqoritm hər addımda «pis» vəziyyətdə olan bir neyronu düzəldir.</p>
+
+    <h3>Teorem (dayanma)</h3>
+    <div class="box">State-Flipping alqoritmi ən çox <span class="math">W = Σ<sub>e</sub> |w<sub>e</sub>|</span> iterasiyadan sonra dayanır və stabil konfiqurasiya qaytarır.
+      Nəticə: <b>hər Hopfild şəbəkəsinin ən azı bir stabil konfiqurasiyası var.</b></div>
+    <p><b>İsbat (potensial funksiya ilə).</b> <span class="math">Φ(S) = Σ<sub>e yaxşı</sub> |w<sub>e</sub>|</span> götürək. Aydındır ki, <span class="math">0 ≤ Φ(S) ≤ W</span>.
+      Razı olmayan u neyronunu çevirək. u-ya bitişik yaxşı tillərin cəmi <span class="math">g<sub>u</sub></span>, pis tillərinki <span class="math">b<sub>u</sub></span> olsun.
+      Çevirmədən sonra u-ya bitişik yaxşı tillər pis olur, pis tillər isə yaxşı. Qalan tillər dəyişmir. Ona görə:</p>
+    <p class="math" style="text-align:center">Φ(S′) = Φ(S) − g<sub>u</sub> + b<sub>u</sub>.</p>
+    <p>u razı olmadığı üçün <span class="math">b<sub>u</sub> &gt; g<sub>u</sub></span>. Çəkilər tam ədəd olduğundan <span class="math">b<sub>u</sub> ≥ g<sub>u</sub> + 1</span>, deməli <span class="math">Φ(S′) ≥ Φ(S) + 1</span>.
+      Φ hər addımda ən azı 1 artır və W-dən böyük ola bilmir. Buna görə alqoritm ən çox W addım atır. Alqoritm yalnız razı olmayan neyron qalmayanda dayanır, yəni nəticə stabildir. ∎</p>
+    <p>Enerji ilə əlaqə: <span class="math">E(S) = Σ<sub>e</sub> w<sub>e</sub>s<sub>u</sub>s<sub>v</sub></span> olarsa, <span class="math">Φ = (W − E)/2</span>.
+      Yəni Φ-nin artması Hopfild enerjisinin azalması deməkdir. Stabil konfiqurasiyalar enerjinin <b>lokal minimumlarıdır</b>.</p>
+
+    <h3>Mürəkkəblik analizi</h3>
+    <table class="cx">
+      <tr><th>Əməliyyat</th><th>Vaxt</th></tr>
+      <tr><td>Başlanğıc: bütün h<sub>u</sub> = Σ w<sub>uv</sub>s<sub>v</sub> sahələrini hesablamaq</td><td>O(n + m)</td></tr>
+      <tr><td>Bir çevirmə (h-ları və razı olmayanlar çoxluğunu yeniləmək)</td><td>O(deg u)</td></tr>
+      <tr><td>Addımların sayı</td><td>≤ W</td></tr>
+      <tr><td><b>Ümumi</b></td><td><b>O(m + W·Δ)</b>, Δ – maks. dərəcə</td></tr>
+    </table>
+    <p>Bu sərhəd <b>psevdo-polinomialdır</b>. W çəkilərin <i>qiymətindən</i> asılıdır, onların bit uzunluğundan yox. Çəkilər 2<sup>k</sup> tərtibində olanda W eksponensial böyüyə bilər.
+      Stabil konfiqurasiyanı polinomial vaxtda tapan alqoritmin olub-olmadığı açıq məsələdir. Bu məsələ <b>PLS-tam</b>dır (Schäffer, Yannakakis, 1991).
+      Praktikada isə addım sayı W-dən dəfələrlə kiçik olur (bax: <code>analiz.py</code>).</p>
+
+    <h3>Max-Cut ilə əlaqə (KT §12.4)</h3>
+    <p>Bütün çəkilər müsbət olsun. Onda yaxşı til uc nöqtələri fərqli vəziyyətdə olan tildir, yəni (A = {s=+1}, B = {s=−1}) kəsiyindən keçən tildir.
+      Bu halda Φ kəsiyin çəkisidir və State-Flipping alqoritmi Max-Cut üçün lokal axtarışa çevrilir. Teorem: istənilən lokal optimal kəsik üçün
+      <span class="math">w(A, B) ≥ ½·W ≥ ½·OPT</span>, yəni lokal axtarış <b>2-approksimasiya</b> verir.</p>
+
+    <h3>Tətbiq: assosiativ yaddaş</h3>
+    <p>P sayda <span class="math">ξ<sup>1</sup>, …, ξ<sup>P</sup></span> obrazı Hebb qaydası ilə yadda saxlanılır:
+      <span class="math">w<sub>ij</sub> = −Σ<sub>p</sub> ξ<sup>p</sup><sub>i</sub> ξ<sup>p</sup><sub>j</sub></span>. KT konvensiyasında mənfi çəki «eyni vəziyyət» deməkdir.
+      Obrazlar bir-birinə çox oxşamırsa, onların hər biri stabil konfiqurasiya olur. Küylü şəkildən başlanan lokal axtarış Φ-ni artıra-artıra
+      ən yaxın stabil konfiqurasiyaya, adətən orijinal obraza gəlib çatır. Xatırlama prosesi elə lokal axtarışın özüdür.</p>
+
+    <h3>Python kodu (hopfield.py)</h3>
+    <pre class="code" id="t-code"><span class="k">def</span> state_flipping(net, s0, strategy=<span class="s">"random"</span>, rng=<span class="k">None</span>, max_steps=<span class="k">None</span>):
+<span class="c">    """</span>
+<span class="c">    Kleinberg–Tardos State-Flipping alqoritmi.</span>
+<span class="c"></span>
+<span class="c">    Səmərəli versiya: hər neyron üçün h_u = Σ w_uv s_v saxlanılır və</span>
+<span class="c">    razı olmayan neyronlar çoxluğu (U) yenilənir. Beləliklə bir çevirmə</span>
+<span class="c">    O(deg(u)) vaxt aparır (seçim strategiyasından asılı olaraq + O(|U|)).</span>
+<span class="c"></span>
+<span class="c">    Qaytarır: Result (stabil konfiqurasiya, addımlar, Φ tarixçəsi).</span>
+<span class="c">    """</span>
+    <span class="k">if</span> strategy <span class="k">not</span> <span class="k">in</span> STRATEGIES:
+        <span class="k">raise</span> ValueError(<span class="s">f"Naməlum strategiya: {strategy}"</span>)
+    rng = rng <span class="k">or</span> random.Random()
+    s = list(s0)
+    h = [net.local_field(s, u) <span class="k">for</span> u <span class="k">in</span> range(net.n)]
+    unsatisfied = {u <span class="k">for</span> u <span class="k">in</span> range(net.n) <span class="k">if</span> s[u] * h[u] &gt; 0}
+    phi = net.potential(s)
+    result = Result(state=s, phi_history=[phi])
+
+    <span class="k">while</span> unsatisfied:                                 <span class="c"># stabil deyilsə...</span>
+        <span class="k">if</span> max_steps <span class="k">is</span> <span class="k">not</span> <span class="k">None</span> <span class="k">and</span> result.flips &gt;= max_steps:
+            <span class="k">break</span>
+
+        <span class="c"># 1) Razı olmayan bir u neyronunu seç</span>
+        <span class="k">if</span> strategy == <span class="s">"first"</span>:
+            u = min(unsatisfied)
+        <span class="k">elif</span> strategy == <span class="s">"random"</span>:
+            u = rng.choice(sorted(unsatisfied))
+        <span class="k">else</span>:  <span class="c"># greedy</span>
+            u = max(unsatisfied, key=<span class="k">lambda</span> x: (s[x] * h[x], -x))
+
+        <span class="c"># s_u · h_u = b_u − g_u  &gt;  0  (razı deyil). Çəkilər tam olduğuna görə ≥ 1.</span>
+        gain = s[u] * h[u]
+        g = (sum(abs(w) <span class="k">for</span> _, w <span class="k">in</span> net.neighbors[u]) - gain) // 2
+        b = g + gain
+
+        <span class="c"># 2) Vəziyyəti çevir: yaxşı tillər pis olur, pis tillər yaxşı.</span>
+        s[u] = -s[u]
+        phi_new = phi - g + b                          <span class="c"># = phi + gain ≥ phi + 1</span>
+        <span class="k">assert</span> phi_new &gt;= phi + 1, <span class="s">"Teorem pozuldu: Φ ən azı 1 artmalıdır"</span>
+
+        <span class="c"># 3) Qonşuların sahəsini və razılıq vəziyyətini yenilə</span>
+        unsatisfied.discard(u)                         <span class="c"># indi s_u·h_u = −gain &lt; 0</span>
+        <span class="k">for</span> v, w <span class="k">in</span> net.neighbors[u]:
+            h[v] += 2 * w * s[u]
+            <span class="k">if</span> s[v] * h[v] &gt; 0:
+                unsatisfied.add(v)
+            <span class="k">else</span>:
+                unsatisfied.discard(v)
+
+        result.steps.append(Step(u, g, b, phi, phi_new))
+        result.phi_history.append(phi_new)
+        phi = phi_new
+
+    <span class="k">assert</span> result.flips &lt;= net.W, <span class="s">"Teorem pozuldu: addım sayı W-dən çox ola bilməz"</span>
+    <span class="k">return</span> result</pre>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ===================================================================
+//  Alqoritmin nüvəsi — hopfield.py ilə eyni məntiq
+// ===================================================================
+class Net {
+  constructor(n, edges) {
+    this.n = n;
+    this.edges = edges.filter(e => e[2] !== 0);
+    this.adj = Array.from({ length: n }, () => []);
+    for (const [u, v, w] of this.edges) { this.adj[u].push([v, w]); this.adj[v].push([u, w]); }
+    this.W = this.edges.reduce((a, e) => a + Math.abs(e[2]), 0);
+  }
+  field(s, u) { let h = 0; for (const [v, w] of this.adj[u]) h += w * s[v]; return h; }
+  goodBad(s, u) {
+    let g = 0, b = 0;
+    for (const [v, w] of this.adj[u]) { if (w * s[u] * s[v] < 0) g += Math.abs(w); else b += Math.abs(w); }
+    return [g, b];
+  }
+  potential(s) { let p = 0; for (const [u, v, w] of this.edges) if (w * s[u] * s[v] < 0) p += Math.abs(w); return p; }
+  energy(s) { let e = 0; for (const [u, v, w] of this.edges) e += w * s[u] * s[v]; return e; }
+}
+
+// State-Flipping alqoritmi, addım-addım icra üçün
+class Flipper {
+  constructor(net, s0, strategy, rng) {
+    this.net = net; this.s = s0.slice(); this.strategy = strategy; this.rng = rng;
+    this.h = this.s.map((_, u) => net.field(this.s, u));          // h_u = Σ w_uv s_v
+    this.unsat = new Set();
+    for (let u = 0; u < net.n; u++) if (this.s[u] * this.h[u] > 0) this.unsat.add(u);
+    this.phi = net.potential(this.s);
+    this.history = [this.phi];
+    this.flips = 0;
+  }
+  get stable() { return this.unsat.size === 0; }
+  choose() {
+    const U = [...this.unsat].sort((a, b) => a - b);
+    if (this.strategy === "first") return U[0];
+    if (this.strategy === "random") return U[Math.floor(this.rng() * U.length)];
+    let best = U[0];                                                // acgöz: maks. b_u − g_u
+    for (const u of U) if (this.s[u] * this.h[u] > this.s[best] * this.h[best]) best = u;
+    return best;
+  }
+  step() {
+    if (this.stable) return null;
+    const { s, h, net } = this;
+    const u = this.choose();
+    const gain = s[u] * h[u];                                       // = b_u − g_u ≥ 1
+    const deg = net.adj[u].reduce((a, [, w]) => a + Math.abs(w), 0);
+    const g = (deg - gain) / 2, b = g + gain;
+    s[u] = -s[u];                                                   // çevir!
+    const before = this.phi;
+    this.phi += gain;                                               // Φ' = Φ − g_u + b_u
+    this.unsat.delete(u);
+    for (const [v, w] of net.adj[u]) {
+      h[v] += 2 * w * s[u];
+      if (s[v] * h[v] > 0) this.unsat.add(v); else this.unsat.delete(v);
+    }
+    this.flips++;
+    this.history.push(this.phi);
+    return { u, g, b, before, after: this.phi };
+  }
+}
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const seedRng = mulberry32(2024);
+const newRng = () => mulberry32(Math.floor(seedRng() * 2 ** 31));
+const fmtState = (s) => "[" + s.map(x => x > 0 ? "+" : "−").join(" ") + "]";
+const fmtNum = (x) => String(x);
+const delayFor = (v) => Math.round(1400 / Math.pow(1.75, v - 1));   // sürət 1..10 → ms
+
+// ===================================================================
+//  Psevdokod paneli
+// ===================================================================
+const PSEUDO = [
+  ["State-Flipping(G, w, S):", ""],
+  ["  while S stabil deyil:", ""],
+  ["      u ← razı olmayan istənilən neyron", ""],
+  ["      s<sub>u</sub> ← −s<sub>u</sub>", "    ▹ Φ(S) ən azı 1 artır"],
+  ["  return S", "                    ▹ stabil konfiqurasiya"],
+];
+function renderPseudo(el, active) {
+  el.innerHTML = PSEUDO.map(([code, cm], i) =>
+    `<span class="ln${active.includes(i) ? " hl" : ""}">${code}<span class="cm">${cm}</span></span>`).join("");
+}
+
+// ===================================================================
+//  Φ diaqramı (xətt + hover tooltip)
+// ===================================================================
+function niceTicks(min, max, count = 4) {
+  if (min === max) { min -= 1; max += 1; }
+  const raw = (max - min) / count, mag = 10 ** Math.floor(Math.log10(raw)), e = raw / mag;
+  const step = (e >= 7.5 ? 10 : e >= 3.5 ? 5 : e >= 1.5 ? 2 : 1) * mag;
+  const ticks = [];
+  for (let x = Math.floor(min / step) * step; x <= Math.ceil(max / step) * step + 1e-9; x += step) ticks.push(Math.round(x * 1e6) / 1e6);
+  return ticks;
+}
+function drawChart(svg, tip, data, W) {
+  const VW = 440, VH = 200, m = { l: 52, r: 14, t: 12, b: 30 };
+  const iw = VW - m.l - m.r, ih = VH - m.t - m.b;
+  const yt = niceTicks(0, W);
+  const y0 = yt[0], y1 = yt[yt.length - 1];
+  const xmax = Math.max(1, data.length - 1);
+  const xt = niceTicks(0, xmax, 5).filter(t => t <= xmax && Number.isInteger(t));
+  const X = i => m.l + (i / xmax) * iw, Y = v => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
+  let out = "";
+  for (const t of yt) out += `<line x1="${m.l}" x2="${VW - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--grid)"/>` +
+    `<text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtNum(t)}</text>`;
+  for (const t of xt) out += `<text x="${X(t)}" y="${VH - 10}" text-anchor="middle" font-size="11" fill="var(--muted)">${t}</text>`;
+  out += `<line x1="${m.l}" x2="${VW - m.r}" y1="${m.t + ih}" y2="${m.t + ih}" stroke="var(--base)"/>`;
+  out += `<line x1="${m.l}" x2="${VW - m.r}" y1="${Y(W)}" y2="${Y(W)}" stroke="var(--ink2)" stroke-dasharray="5 4"/>` +
+    `<text x="${VW - m.r}" y="${Y(W) - 5}" text-anchor="end" font-size="11" fill="var(--ink2)">sərhəd W = ${fmtNum(W)}</text>`;
+  const pts = data.map((v, i) => `${X(i)},${Y(v)}`).join(" ");
+  out += `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const last = data.length - 1;
+  out += `<circle cx="${X(last)}" cy="${Y(data[last])}" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+  out += `<g class="hover" style="display:none"><line class="hx" y1="${m.t}" y2="${m.t + ih}" stroke="var(--base)"/>` +
+         `<circle class="hc" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>`;
+  out += `<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" class="hit"/>`;
+  svg.innerHTML = out;
+
+  const hover = svg.querySelector(".hover"), hit = svg.querySelector(".hit");
+  hit.addEventListener("mousemove", (ev) => {
+    const r = svg.getBoundingClientRect(), sx = VW / r.width;
+    const px = (ev.clientX - r.left) * sx;
+    const i = Math.max(0, Math.min(last, Math.round(((px - m.l) / iw) * xmax)));
+    hover.style.display = "";
+    hover.querySelector(".hx").setAttribute("x1", X(i)); hover.querySelector(".hx").setAttribute("x2", X(i));
+    hover.querySelector(".hc").setAttribute("cx", X(i)); hover.querySelector(".hc").setAttribute("cy", Y(data[i]));
+    tip.style.display = "block";
+    tip.innerHTML = `addım <b>${i}</b> · Φ = <b>${fmtNum(data[i])}</b>` + (i > 0 ? ` <span style="color:var(--ink2)">(+${fmtNum(data[i] - data[i - 1])})</span>` : "");
+    const left = X(i) / sx, top = Y(data[i]) / sx;
+    tip.style.left = Math.min(left + 10, r.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = Math.max(0, top - 34) + "px";
+  });
+  hit.addEventListener("mouseleave", () => { hover.style.display = "none"; tip.style.display = "none"; });
+}
+
+// ===================================================================
+//  1. QRAF REJİMİ
+// ===================================================================
+const EXAMPLE = {   // hopfield.py-dakı EXAMPLE_EDGES ilə eyni
+  n: 6,
+  edges: [[0, 1, 6], [0, 2, 4], [0, 3, 5], [0, 5, -8], [1, 4, -7], [1, 5, 4], [2, 3, 6], [3, 4, 9], [3, 5, -4]],
+  pos: [[110, 205], [200, 385], [300, 70], [490, 205], [420, 385], [300, 280]],
+  labelDir: { 5: [0.8, 0.6] },   // 5-ci neyronun yazısı tillərlə üst-üstə düşməsin
+};
+const G = { net: null, s0: null, fl: null, pos: [], last: -1, timer: null, labelT: 0.5, labelDir: {} };
+
+function graphLoad(n, edges, s0, pos, labelT, labelDir = {}) {
+  G.net = new Net(n, edges); G.s0 = s0; G.pos = pos; G.labelT = labelT; G.labelDir = labelDir;
+  graphReset();
+}
+function graphExample() {
+  graphLoad(EXAMPLE.n, EXAMPLE.edges, Array(EXAMPLE.n).fill(1), EXAMPLE.pos, 0.5, EXAMPLE.labelDir);
+}
+function graphRandom() {
+  const n = +$("g-n").value, r = newRng(), edges = [];
+  for (let u = 0; u < n; u++) for (let v = u + 1; v < n; v++)
+    if (r() < 0.45) edges.push([u, v, (r() < 0.5 ? -1 : 1) * (1 + Math.floor(r() * 9))]);
+  const s0 = Array.from({ length: n }, () => (r() < 0.5 ? -1 : 1));
+  const R = 175, pos = Array.from({ length: n }, (_, i) => {
+    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return [300 + R * Math.cos(a), 232 + R * Math.sin(a)];
+  });
+  graphLoad(n, edges, s0, pos, 0.4);
+}
+function graphReset() {
+  graphStop();
+  G.fl = new Flipper(G.net, G.s0, $("g-strategy").value, newRng());
+  G.last = -1;
+  const unsat = [...G.fl.unsat].sort((a, b) => a - b);
+  $("g-log").innerHTML = "";
+  logLine(`Başlanğıc: S₀ = ${fmtState(G.s0)}, Φ = ${G.fl.phi}, razı olmayan: ${unsat.length ? unsat.join(", ") : "yoxdur"}`, "info");
+  if (G.fl.stable) logDone();
+  graphRender();
+}
+function logLine(text, cls = "") {
+  const li = document.createElement("li");
+  li.textContent = text; if (cls) li.className = cls;
+  const log = $("g-log"); log.appendChild(li); log.scrollTop = log.scrollHeight;
+}
+function logDone() {
+  const f = G.fl;
+  logLine(`✓ Stabil: S* = ${fmtState(f.s)}, Φ = ${f.phi}, ${f.flips} çevirmə (≤ W = ${G.net.W})`, "done");
+}
+function graphStep() {
+  const st = G.fl.step();
+  if (!st) { graphStop(); return false; }
+  G.last = st.u;
+  logLine(`${G.fl.flips}. neyron ${st.u}: y = ${st.g} < p = ${st.b} → çevrildi, Φ: ${st.before} → ${st.after}`);
+  if (G.fl.stable) { logDone(); graphStop(); }
+  graphRender();
+  return true;
+}
+function graphPlay() {
+  if (G.timer) return graphStop();
+  if (G.fl.stable) return;
+  $("g-play").textContent = "⏸ Dayandır";
+  const tick = () => { if (graphStep()) G.timer = setTimeout(tick, delayFor(+$("g-speed").value)); };
+  tick();
+}
+function graphStop() {
+  clearTimeout(G.timer); G.timer = null;
+  $("g-play").textContent = "▶ Başlat";
+}
+function graphFlipManual(u) {
+  const s = G.fl.s.slice(); s[u] = -s[u];
+  G.s0 = s;
+  graphReset();
+  logLine(`(neyron ${u} əl ilə çevrildi — yeni başlanğıc konfiqurasiya)`, "info");
+}
+
+function graphRender() {
+  const { net, fl, pos } = G, s = fl.s;
+  const maxW = Math.max(...net.edges.map(e => Math.abs(e[2])));
+  const cx = pos.reduce((a, p) => a + p[0], 0) / pos.length, cy = pos.reduce((a, p) => a + p[1], 0) / pos.length;
+  let edgesSvg = "", labelsSvg = "", nodesSvg = "";
+
+  for (const [u, v, w] of net.edges) {
+    const [x1, y1] = pos[u], [x2, y2] = pos[v];
+    const good = w * s[u] * s[v] < 0;
+    const width = 1.5 + 4 * Math.abs(w) / maxW;
+    edgesSvg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--${good ? "good" : "bad"})" stroke-width="${width}"` +
+      (good ? "" : ` stroke-dasharray="8 6"`) + ` stroke-linecap="round"/>`;
+    const t = G.labelT, lx = x1 + (x2 - x1) * t, ly = y1 + (y2 - y1) * t;
+    const txt = (w > 0 ? "+" : "−") + Math.abs(w);
+    labelsSvg += `<rect x="${lx - 16}" y="${ly - 11}" width="32" height="21" rx="10" fill="var(--surface)" stroke="var(--grid)"/>` +
+      `<text x="${lx}" y="${ly + 4.5}" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">${txt}</text>`;
+  }
+
+  for (let u = 0; u < net.n; u++) {
+    const [x, y] = pos[u], plus = s[u] > 0, unsat = fl.unsat.has(u);
+    const [g, b] = net.goodBad(s, u);
+    if (u === G.last) nodesSvg += `<circle cx="${x}" cy="${y}" r="33" fill="none" stroke="var(--flip)" stroke-width="5" opacity=".9"/>`;
+    nodesSvg += `<g style="cursor:pointer" data-node="${u}">` +
+      `<circle cx="${x}" cy="${y}" r="24" fill="var(--${plus ? "pos" : "neg"})" stroke="${unsat ? "var(--bad)" : "var(--ink2)"}" stroke-width="${unsat ? 4 : 1.5}"/>` +
+      `<text x="${x}" y="${y + 6}" text-anchor="middle" font-size="18" font-weight="650" fill="${plus ? "#fff" : "var(--ink)"}">${u}</text></g>`;
+    // izah yazısı — mərkəzdən kənara doğru
+    let dx = x - cx, dy = y - cy; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    if (G.labelDir[u]) [dx, dy] = G.labelDir[u]; else if (L < 40) { dx = 0; dy = 1; }
+    const lx = x + dx * 44, ly = y + dy * 44 + 4;
+    const anchor = Math.abs(dx) < 0.35 ? "middle" : dx > 0 ? "start" : "end";
+    nodesSvg += `<text x="${lx}" y="${ly - 7}" text-anchor="${anchor}" font-size="12.5" fill="var(--ink2)">s = ${plus ? "+1" : "−1"}</text>` +
+      `<text x="${lx}" y="${ly + 9}" text-anchor="${anchor}" font-size="12.5" font-weight="600" fill="${unsat ? "var(--bad)" : "#006300"}">y ${g} · p ${b} ${unsat ? "✗" : "✓"}</text>`;
+  }
+  const svg = $("g-svg");
+  svg.innerHTML = edgesSvg + labelsSvg + nodesSvg;
+  svg.querySelectorAll("[data-node]").forEach(el => el.addEventListener("click", () => graphFlipManual(+el.dataset.node)));
+
+  $("g-phi").textContent = fmtNum(fl.phi);
+  $("g-W").textContent = fmtNum(net.W);
+  $("g-flips").textContent = fl.flips;
+  $("g-unsat").textContent = fl.unsat.size;
+  $("g-E").textContent = fmtNum(net.energy(s));
+  $("g-m").textContent = net.edges.length;
+  const st = $("g-status");
+  if (fl.stable) { st.className = "status ok"; st.textContent = `✓ Stabil konfiqurasiya tapıldı: ${fl.flips} çevirmə, Φ = ${fl.phi} (W = ${net.W}).`; }
+  else { st.className = "status run"; st.textContent = `Stabil deyil: ${fl.unsat.size} neyron razı deyil (${[...fl.unsat].sort((a, b) => a - b).join(", ")}).`; }
+  renderPseudo($("g-pseudo"), fl.stable ? [4] : G.last >= 0 ? [3] : [1, 2]);
+  drawChart($("g-chart"), $("g-tip"), fl.history, net.W);
+  $("g-step").disabled = fl.stable;
+  $("g-play").disabled = fl.stable;
+}
+
+// ===================================================================
+//  2. ASSOSİATİV YADDAŞ
+// ===================================================================
+const PATTERNS = {   // assosiativ_yaddas.py-dakı obrazlarla eyni
+  "A": ["...####...", "..######..", ".###..###.", ".##....##.", ".##....##.", ".########.", ".########.", ".##....##.", ".##....##.", ".##....##."],
+  "Ə": ["..######..", ".########.", ".##....##.", ".......##.", ".########.", ".########.", ".##....##.", ".###..###.", "..######..", "...####..."],
+  "Z": ["##########", "##########", "......###.", ".....###..", "....###...", "...###....", "..###.....", ".###......", "##########", "##########"],
+  "X": ["##......##", "###....###", ".###..###.", "..######..", "...####...", "...####...", "..######..", ".###..###.", "###....###", "##......##"],
+};
+const N = 100;
+const VEC = Object.fromEntries(Object.entries(PATTERNS).map(([k, rows]) => [k, rows.join("").split("").map(c => c === "#" ? 1 : -1)]));
+const M = { net: null, s0: null, fl: null, sel: "A", last: -1, timer: null, cells: [], painting: 0 };
+
+function buildMemoryNet() {
+  const pats = Object.values(VEC), edges = [];
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+    let w = 0; for (const p of pats) w -= p[i] * p[j];             // Hebb qaydası (KT işarəsi)
+    if (w !== 0) edges.push([i, j, w]);
+  }
+  M.net = new Net(N, edges);
+}
+function memInitDom() {
+  const grid = $("m-grid");
+  for (let i = 0; i < N; i++) {
+    const c = document.createElement("div"); c.className = "cell"; c.dataset.i = i;
+    grid.appendChild(c); M.cells.push(c);
+  }
+  const paint = (i) => {
+    if (M.fl.s[i] === M.painting) return;
+    const s = M.fl.s.slice(); s[i] = M.painting; memSetStart(s);
+  };
+  grid.addEventListener("pointerdown", (e) => {
+    const i = e.target.dataset.i; if (i === undefined) return;
+    memStop(); M.painting = -M.fl.s[+i]; paint(+i);
+    grid.setPointerCapture(e.pointerId);
+  });
+  grid.addEventListener("pointermove", (e) => {
+    if (!M.painting) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el && el.dataset && el.dataset.i !== undefined) paint(+el.dataset.i);
+  });
+  const end = () => { M.painting = 0; };
+  grid.addEventListener("pointerup", end); grid.addEventListener("pointercancel", end);
+
+  const box = $("m-patterns");
+  for (const k of Object.keys(VEC)) {
+    const d = document.createElement("div"); d.className = "pat"; d.dataset.k = k;
+    const cv = document.createElement("canvas"); cv.width = 10; cv.height = 10;
+    const ctx = cv.getContext("2d");
+    VEC[k].forEach((v, i) => { ctx.fillStyle = v > 0 ? "#184f95" : "#f0efec"; ctx.fillRect(i % 10, Math.floor(i / 10), 1, 1); });
+    d.append(cv);
+    d.insertAdjacentHTML("beforeend", `<div class="nm">«${k}»</div><div class="d"></div>`);
+    d.addEventListener("click", () => { M.sel = k; memSetStart(VEC[k].slice()); });
+    box.appendChild(d);
+  }
+}
+function memSetStart(s) {
+  memStop();
+  M.s0 = s.slice();
+  M.fl = new Flipper(M.net, M.s0, $("m-strategy").value, newRng());
+  M.last = -1;
+  memRender();
+}
+function memNoisy() {
+  const r = newRng(), s = VEC[M.sel].slice();
+  const k = Math.round(+$("m-noise").value / 100 * N), idx = [...Array(N).keys()];
+  for (let i = 0; i < k; i++) {                                     // Fisher–Yates ilə k piksel seç
+    const j = i + Math.floor(r() * (N - i)); [idx[i], idx[j]] = [idx[j], idx[i]];
+    s[idx[i]] = -s[idx[i]];
+  }
+  memSetStart(s);
+}
+function memStep() {
+  const st = M.fl.step();
+  if (!st) { memStop(); return false; }
+  M.last = st.u;
+  if (M.fl.stable) memStop();
+  memRender();
+  return true;
+}
+function memPlay() {
+  if (M.timer) return memStop();
+  if (M.fl.stable) return;
+  $("m-play").textContent = "⏸ Dayandır";
+  const tick = () => { if (memStep() && !M.fl.stable) M.timer = setTimeout(tick, delayFor(+$("m-speed").value) / 4); };
+  tick();
+}
+function memStop() {
+  clearTimeout(M.timer); M.timer = null;
+  $("m-play").textContent = "▶ Başlat";
+}
+function memRender() {
+  const { fl, net } = M, s = fl.s;
+  for (let i = 0; i < N; i++) {
+    const c = M.cells[i];
+    c.className = "cell" + (s[i] > 0 ? " on" : "") + (fl.unsat.has(i) ? " unsat" : "") + (i === M.last ? " flip" : "");
+  }
+  let best = null, bestD = Infinity;
+  document.querySelectorAll(".pat").forEach(el => {
+    const k = el.dataset.k, d = VEC[k].reduce((a, v, i) => a + (v !== s[i]), 0);
+    el.querySelector(".d").textContent = d === 0 ? "✓ eynidir" : d === N ? "inversiya" : `fərq: ${d}`;
+    el.classList.toggle("match", d === 0);
+    el.classList.toggle("sel", k === M.sel);
+    if (d < bestD) { bestD = d; best = k; }
+  });
+  $("m-phi").textContent = fmtNum(fl.phi);
+  $("m-W").textContent = fmtNum(net.W);
+  $("m-flips").textContent = fl.flips;
+  $("m-unsat").textContent = fl.unsat.size;
+  $("m-near").textContent = `«${best}» · ${bestD}`;
+  $("m-m").textContent = fmtNum(net.edges.length);
+  const st = $("m-status");
+  if (!fl.stable) { st.className = "status run"; st.textContent = `Axtarış davam edir: ${fl.unsat.size} neyron razı deyil.`; }
+  else if (bestD === 0) { st.className = "status ok"; st.textContent = `✓ Stabil: «${best}» obrazı ${fl.flips} çevirmə ilə bərpa olundu.`; }
+  else { st.className = "status"; st.textContent = `Stabil, lakin yadda saxlanılmış obraz deyil (saxta stabil hal və ya inversiya). Ən yaxını «${best}», fərq ${bestD}.`; }
+  renderPseudo($("m-pseudo"), fl.stable ? [4] : M.last >= 0 ? [3] : [1, 2]);
+  drawChart($("m-chart"), $("m-tip"), fl.history, net.W);
+  $("m-step").disabled = fl.stable;
+  $("m-play").disabled = fl.stable;
+}
+
+// ===================================================================
+//  Bağlantılar
+// ===================================================================
+const TAB_HASH = { "tab-graph": "#qraf", "tab-mem": "#yaddas", "tab-theory": "#nezeriyye" };
+function openTab(id) {
+  graphStop(); memStop();
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  document.querySelectorAll("main").forEach(m => m.classList.toggle("active", m.id === id));
+  history.replaceState(null, "", TAB_HASH[id]);
+}
+document.querySelectorAll("nav button").forEach(btn => btn.addEventListener("click", () => openTab(btn.dataset.tab)));
+$("g-step").onclick = graphStep;
+$("g-play").onclick = graphPlay;
+$("g-reset").onclick = graphReset;
+$("g-example").onclick = graphExample;
+$("g-random").onclick = graphRandom;
+$("g-strategy").onchange = () => { G.fl.strategy = $("g-strategy").value; };
+$("g-n").oninput = () => { $("g-n-val").textContent = $("g-n").value; };
+
+$("m-step").onclick = memStep;
+$("m-play").onclick = memPlay;
+$("m-reset").onclick = () => memSetStart(M.s0);
+$("m-addnoise").onclick = memNoisy;
+$("m-clear").onclick = () => memSetStart(Array(N).fill(-1));
+$("m-strategy").onchange = () => { M.fl.strategy = $("m-strategy").value; };
+$("m-noise").oninput = () => { $("m-noise-val").textContent = $("m-noise").value + "%"; };
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const graph = $("tab-graph").classList.contains("active"), mem = $("tab-mem").classList.contains("active");
+  if (!graph && !mem) return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowright") { e.preventDefault(); graph ? graphStep() : memStep(); }
+  else if (k === "p") graph ? graphPlay() : memPlay();
+  else if (k === "r") graph ? graphReset() : memSetStart(M.s0);
+});
+
+renderPseudo($("t-pseudo"), []);
+graphExample();
+buildMemoryNet();
+memInitDom();
+memNoisy();
+const startTab = Object.keys(TAB_HASH).find(k => TAB_HASH[k] === location.hash);
+if (startTab) openTab(startTab);
+</script>
+</body>
+</html>
