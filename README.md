@@ -21,6 +21,10 @@
 Python 3.8+ lazımdır. Qrafiklər üçün `matplotlib` istifadə olunur, amma məcburi deyil. Alqoritmin özü yalnız standart kitabxanadan istifadə edir.
 
 ```bash
+pip install -r requirements.txt
+```
+
+```bash
 python hopfield.py
 ```
 
