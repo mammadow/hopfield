@@ -1,5 +1,7 @@
 # Hopfild neyron şəbəkələrində lokal axtarış
 
+[![CI](https://github.com/mammadow/hopfield/actions/workflows/ci.yml/badge.svg)](https://github.com/mammadow/hopfield/actions/workflows/ci.yml) [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-B54A1D)](https://mammadow.github.io/hopfield/) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Fənn:** Alqoritmlərin analizi
 **Mövzu:** Lokal axtarışın Hopfild neyron şəbəkələrinə tətbiqi (State-Flipping alqoritmi)
 **Əsas mənbə:** J. Kleinberg, É. Tardos, *Algorithm Design*, §12.3–12.4
